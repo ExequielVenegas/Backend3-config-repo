@@ -1,16 +1,21 @@
-# Configuración centralizada
+# Configuración compartida
 
+Contiene propiedades públicas por servicio que Config Server entrega a los componentes. Los secretos se inyectan desde el entorno.
 
-Esta carpeta contiene datos de configuración, no una aplicación independiente.
-Platform la monta como /config en solo lectura y la sirve con Config Server native.
+## Participación en el proyecto
 
-| Archivo | Contenido |
+| Aspecto | Función |
 |---|---|
-| application-cloud.properties | Propiedades comunes de Eureka y diagnóstico |
-| account-service-cloud.properties | Conexión MySQL por variables y puerto |
-| bff-web-cloud.properties | Nombre lógico de Account, JWT, timeouts y resiliencia |
+| Entrada | Archivos de configuración versionados |
+| Salida | Propiedades para Config Server |
+| Ejecución | Carpeta montada en Platform |
 
-Se utiliza spring.application.name y el perfil cloud para seleccionar los archivos.
-Los valores sensibles son referencias a variables del cliente; no guardar
-contraseñas, certificados privados ni tokens aquí.
-Después de cambiar archivos, reiniciar los clientes para volver a importarlos.
+## Flujo completo
+
+Los CSV se procesan localmente con Spring Batch y sus resultados se guardan en MySQL. Los datos históricos permanecen disponibles; las asociaciones revisadas permiten crear cuentas modernas con trazabilidad al archivo de origen.
+
+El cliente obtiene un JWT en Auth Server y accede por HTTPS a su BFF (Web, Móvil o Cajero). El BFF valida el token y sus permisos, adapta la respuesta y descubre los servicios mediante Eureka. Customer administra perfiles; Account administra cuentas, saldos y movimientos; Payment administra órdenes de pago.
+
+Para una operación monetaria, el BFF envía la orden a Payment, que guarda la orden y su outbox. Kafka en AWS transporta el comando hasta Account. Account aplica los movimientos en una transacción de MySQL y publica el resultado mediante su outbox. Payment consume el resultado y la consulta del BFF informa APLICADO o RECHAZADO. La clave de idempotencia evita repetir el efecto de una misma operación. El flujo de solicitudes de estado de cuenta se publica directamente desde BFF Web hacia Kafka y lo consume Account.
+
+Config Server centraliza propiedades y Resilience4j limita los fallos en llamadas HTTP. Docker Compose ejecuta los servicios locales; MySQL y el batch permanecen en el PC. AWS aloja únicamente Kafka, en modo KRaft.
